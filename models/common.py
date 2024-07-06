@@ -615,21 +615,26 @@ class SEBlock(nn.Module):
         return x * y
 
 class Bottleneck1(nn.Module):
-    # Standard bottleneck with SE block
-    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, shortcut, groups, expansion
+    # CSP Bottleneck with SE Block
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
         super().__init__()
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1)
-        self.cv2 = Conv(c_, c2, 3, 1, g=g)
-        self.add = shortcut and c1 == c2
-        self.se = SEBlock(c2)
+        self.cv2 = nn.Conv2d(c1, c_, 1, 1, bias=False)
+        self.cv3 = nn.Conv2d(c_, c_, 1, 1, bias=False)
+        self.cv4 = Conv(2 * c_, c2, 1, 1)
+        self.bn = nn.BatchNorm2d(2 * c_)  # applied to cat(cv2, cv3)
+        self.act = nn.LeakyReLU(0.1, inplace=True)
+        self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
+        self.se = SEBlock(c2)  # SE block for channel-wise attention
 
     def forward(self, x):
-        out = self.cv2(self.cv1(x))
-        out = self.se(out)
-        return x + out if self.add else out
+        y1 = self.cv3(self.m(self.cv1(x)))
+        y2 = self.cv2(x)
+        y = self.cv4(self.act(self.bn(torch.cat((y1, y2), dim=1))))
+        return self.se(y)  # Apply SE block
 
-class C3Enhanced(nn.Module):
+class NeuroNest(nn.Module):
     # Enhanced CSP Bottleneck with 3 convolutions and SE block
     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
         super().__init__()
