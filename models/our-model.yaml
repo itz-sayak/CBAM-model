@@ -12,13 +12,13 @@ anchors:
 backbone:
   [[-1, 1, Conv, [64, 6, 2, 2]],  # 0-P1/2
    [-1, 1, Conv, [128, 3, 2]],  # 1-P2/4
-   [-1, 3, C3Enhanced, [128, 128]],  # Replace C3 with C3Enhanced
+   [-1, 3, NeuroNest, [128, 128]],  # Replace C3 with NeuroNest
    [-1, 1, Conv, [256, 3, 2]],  # 3-P3/8
-   [-1, 6, C3Enhanced, [256, 256]],  # Replace C3 with C3Enhanced
+   [-1, 6, NeuroNest, [256, 256]],  # Replace C3 with NeuroNest
    [-1, 1, Conv, [512, 3, 2]],  # 5-P4/16
-   [-1, 9, C3Enhanced, [512, 512]],  # Replace C3 with C3Enhanced
+   [-1, 9, NeuroNest, [512, 512]],  # Replace C3 with NeuroNest
    [-1, 1, Conv, [1024, 3, 2]],  # 7-P5/32
-   [-1, 3, C3Enhanced, [1024, 1024]],  # Replace C3 with C3Enhanced
+   [-1, 3, NeuroNest, [1024, 1024]],  # Replace C3 with NeuroNest
    [-1, 1, SPPF, [1024, 5]],  # 9
   ]
 
@@ -27,20 +27,20 @@ head:
   [[-1, 1, Conv, [512, 1, 1]],
    [-1, 1, nn.Upsample, [None, 2, 'nearest']],
    [[-1, 6], 1, Concat, [1]],  # cat backbone P4
-   [-1, 3, C3Enhanced, [512, 512]],  # Replace C3 with C3Enhanced
+   [-1, 3, NeuroNest, [512, 512]],  # Replace C3 with NeuroNest
 
    [-1, 1, Conv, [256, 1, 1]],
    [-1, 1, nn.Upsample, [None, 2, 'nearest']],
    [[-1, 4], 1, Concat, [1]],  # cat backbone P3
-   [-1, 3, C3Enhanced, [256, 256]],  # Replace C3 with C3Enhanced (P3/8-small)
+   [-1, 3, NeuroNest, [256, 256]],  # Replace C3 with NeuroNest (P3/8-small)
 
    [-1, 1, Conv, [256, 3, 2]],
    [[-1, 14], 1, Concat, [1]],  # cat head P4
-   [-1, 3, C3Enhanced, [512, 512]],  # Replace C3 with C3Enhanced (P4/16-medium)
+   [-1, 3, NeuroNest, [512, 512]],  # Replace C3 with NeuroNest (P4/16-medium)
 
    [-1, 1, Conv, [512, 3, 2]],
    [[-1, 10], 1, Concat, [1]],  # cat head P5
-   [-1, 3, C3Enhanced, [1024, 1024]],  # Replace C3 with C3Enhanced (P5/32-large)
+   [-1, 3, NeuroNest, [1024, 1024]],  # Replace C3 with NeuroNest (P5/32-large)
 
    [[17, 20, 23], 1, Detect, [nc, anchors]],  # Detect(P3, P4, P5)
   ]
