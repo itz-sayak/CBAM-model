@@ -634,7 +634,7 @@ class Bottleneck1(nn.Module):
         y = self.cv4(self.act(self.bn(torch.cat((y1, y2), dim=1))))
         return self.se(y)  # Apply SE block
 
-class NeuroNest(nn.Module):
+class C3extreme(nn.Module):
     # Enhanced CSP Bottleneck with 3 convolutions and SE block
     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
         super().__init__()
@@ -646,4 +646,24 @@ class NeuroNest(nn.Module):
 
     def forward(self, x):
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
+
+
+class NeuroNest(nn.Module):
+    # Ghost Bottleneck with SE block
+    def __init__(self, c1, c2, k=3, s=1, r=16):  # ch_in, ch_out, kernel, stride, reduction ratio
+        super().__init__()
+        c_ = c2 // 2
+        self.conv = nn.Sequential(
+            GhostConv(c1, c_, 1, 1),  # pw
+            DWConv(c_, c_, k, s, act=False) if s == 2 else nn.Identity(),  # dw
+            GhostConv(c_, c2, 1, 1, act=False)  # pw-linear
+        )
+        self.se = SEBlock(c2, r)  # SE block
+        self.shortcut = nn.Sequential(
+            DWConv(c1, c1, k, s, act=False),
+            Conv(c1, c2, 1, 1, act=False)
+        ) if s == 2 else nn.Identity()
+
+    def forward(self, x):
+        return self.conv(x) + self.shortcut(x)
 
