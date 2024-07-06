@@ -32,7 +32,7 @@ onnx-simplifier>=0.3.6  # ONNX simplifier
 albumentations>=1.0.3
 # Cython  # for pycocotools https://github.com/cocodataset/cocoapi/issues/172
 # pycocotools>=2.0  # COCO mAP
-# roboflow
+roboflow
 thop  # FLOPs computation
 
-yml
+# yml
