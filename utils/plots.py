@@ -97,7 +97,6 @@ def is_writeable(dir, test=False):
     except OSError:
         return False
 
-
 def user_config_dir(dir="Ultralytics", env_var="YOLOV5_CONFIG_DIR"):
     """ Returns user configuration directory path, preferring environment variable `YOLOV5_CONFIG_DIR` if set, else OS-
     specific.
@@ -112,24 +111,25 @@ def user_config_dir(dir="Ultralytics", env_var="YOLOV5_CONFIG_DIR"):
     path.mkdir(exist_ok=True)  # make if required
     return path
 
+
 CONFIG_DIR = user_config_dir()
 
-def check_font(font=FONT, progress=False):
+def check_font(font='Arial.ttf', size=10):
     """ Ensures specified font exists or downloads it from Ultralytics assets, optionally displaying progress."""
     font = Path(font)
     file = CONFIG_DIR / font.name
     if not font.exists() and not file.exists():
         url = f"https://ultralytics.com/assets/{font.name}"
         LOGGER.info(f"Downloading {url} to {file}...")
-        torch.hub.download_url_to_file(url, str(file), progress=progress)
+        torch.hub.download_url_to_file(url, str(file), progress=True)
+    try:
+        return ImageFont.truetype(str(file), size)
+    except Exception as e:
+        print(f"Failed to load the font: {e}. Falling back to the default PIL font.")
+        return ImageFont.load_default()
 
 class Annotator:
-    # if RANK in (-1, 0):
-    #      check_font()  # download TTF if necessary
-
-    # YOLOv5 Annotator for train/val mosaics and jpgs and detect/hub inference annotations
-    # def __init__(self, im, line_width=None, font_size=None, font='Arial.ttf', pil=False, example='abc'):
-    def __init__(self, im, line_width=None, font_size=None, font='', pil=False, example='abc'):
+    def __init__(self, im, line_width=None, font_size=None, font='Arial.ttf', pil=False, example='abc'):
         assert im.data.contiguous, 'Image not contiguous. Apply np.ascontiguousarray(im) to Annotator() input images.'
         self.pil = pil or not is_ascii(example) or is_chinese(example)
         if self.pil:  # use PIL
@@ -152,7 +152,6 @@ class Annotator:
                                      box[1] - h if outside else box[1],
                                      box[0] + w + 1,
                                      box[1] + 1 if outside else box[1] + h + 1], fill=color)
-                # self.draw.text((box[0], box[1]), label, fill=txt_color, font=self.font, anchor='ls')  # for PIL>8.0
                 self.draw.text((box[0], box[1] - h if outside else box[1]), label, fill=txt_color, font=self.font)
         else:  # cv2
             p1, p2 = (int(box[0]), int(box[1])), (int(box[2]), int(box[3]))
