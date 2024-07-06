@@ -16,6 +16,9 @@ import pandas as pd
 import seaborn as sn
 import torch
 from PIL import Image, ImageDraw, ImageFont
+import platform
+import torch
+import logging
 
 from utils.general import user_config_dir, is_ascii, is_chinese, xywh2xyxy, xyxy2xywh
 from utils.metrics import fitness
@@ -26,6 +29,7 @@ RANK = int(os.getenv('RANK', -1))
 matplotlib.rc('font', **{'size': 11})
 matplotlib.use('Agg')  # for writing to files only
 
+LOGGER = logging.getLogger(__name__)
 
 class Colors:
     # Ultralytics color palette https://ultralytics.com/
@@ -60,7 +64,7 @@ def check_font(font='Arial.ttf', size=10):
         torch.hub.download_url_to_file(url, str(font), progress=False)
         return ImageFont.truetype(str(font), size)
 '''
-
+'''
 def check_font(font='Arial.ttf', size=10):
     # Return a PIL TrueType Font, downloading to CONFIG_DIR if necessary
     font_path = Path(font)
@@ -79,7 +83,32 @@ def check_font(font='Arial.ttf', size=10):
             # Fallback to a default PIL font
             print("Falling back to the default PIL font.")
             return ImageFont.load_default()
+'''
 
+def user_config_dir(dir="Ultralytics", env_var="YOLOV5_CONFIG_DIR"):
+    """ Returns user configuration directory path, preferring environment variable `YOLOV5_CONFIG_DIR` if set, else OS-
+    specific.
+    """
+    env = os.getenv(env_var)
+    if env:
+        path = Path(env)  # use environment variable
+    else:
+        cfg = {"Windows": "AppData/Roaming", "Linux": ".config", "Darwin": "Library/Application Support"}  # 3 OS dirs
+        path = Path.home() / cfg.get(platform.system(), "")  # OS-specific config dir
+        path = (path if is_writeable(path) else Path("/tmp")) / dir  # GCP and AWS lambda fix, only /tmp is writeable
+    path.mkdir(exist_ok=True)  # make if required
+    return path
+
+CONFIG_DIR = user_config_dir()
+
+def check_font(font=FONT, progress=False):
+    """ Ensures specified font exists or downloads it from Ultralytics assets, optionally displaying progress."""
+    font = Path(font)
+    file = CONFIG_DIR / font.name
+    if not font.exists() and not file.exists():
+        url = f"https://ultralytics.com/assets/{font.name}"
+        LOGGER.info(f"Downloading {url} to {file}...")
+        torch.hub.download_url_to_file(url, str(file), progress=progress)
 
 class Annotator:
     # if RANK in (-1, 0):
