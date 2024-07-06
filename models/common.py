@@ -593,32 +593,63 @@ class Involution(nn.Module):
         return out
 # ----------------------------Involution end --------------------------------------------------
 
-class CP11(nn.Module):
-    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
-        super().__init__()
-        c_ = int(c2 * e)
-        self.cv1 = Conv(c1, c_, 1, 1)
-        self.cv2 = nn.Conv2d(c1, c_, 1, 1, bias=False)
-        self.cv3 = nn.Conv2d(c_, c_, 1, 1, bias=False)
-        self.cv4 = Conv(2 * c_, c2, 1, 1)
-        self.bn = nn.BatchNorm2d(2 * c_)
-        self.act = nn.LeakyReLU(0.1, inplace=True)
-        self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
-        # FPN layers
-        self.fpn_conv1 = Conv(c1, c_, 1, 1)
-        self.fpn_conv2 = Conv(c_, c_, 1, 1)
-        self.fpn_conv3 = Conv(c_, c_, 1, 1)
+class Conv(nn.Module):
+    # Standard convolution with batch normalization and activation
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):
+        super().__init__()
+        self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.SiLU() if act else nn.Identity()
 
     def forward(self, x):
-        # Main CSP path
-        y1 = self.cv3(self.m(self.cv1(x)))
-        y2 = self.cv2(x)
-        out_csp = self.cv4(self.act(self.bn(torch.cat((y1, y2), dim=1))))
+        return self.act(self.bn(self.conv(x)))
 
-        # FPN path
-        out_fpn1 = self.fpn_conv1(x)
-        out_fpn2 = self.fpn_conv2(out_fpn1)
-        out_fpn3 = self.fpn_conv3(out_fpn2)
+class SEBlock(nn.Module):
+    # Squeeze-and-Excitation block for channel-wise attention
+    def __init__(self, c, r=16):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Conv2d(c, c // r, 1, bias=False),
+            nn.SiLU(),
+            nn.Conv2d(c // r, c, 1, bias=False),
+            nn.Sigmoid()
+        )
 
-        return out_csp, out_fpn1, out_fpn2, out_fpn3
+    def forward(self, x):
+        y = self.avg_pool(x)
+        y = self.fc(y)
+        return x * y
+
+class Bottleneck1(nn.Module):
+    # Standard bottleneck with SE block
+    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, shortcut, groups, expansion
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1)
+        self.cv2 = Conv(c_, c2, 3, 1, g=g)
+        self.add = shortcut and c1 == c2
+        self.se = SEBlock(c2)
+
+    def forward(self, x):
+        out = self.cv2(self.cv1(x))
+        out = self.se(out)
+        return x + out if self.add else out
+
+class C3Enhanced(nn.Module):
+    # Enhanced CSP Bottleneck with 3 convolutions and SE block
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1)
+        self.cv2 = Conv(c1, c_, 1, 1)
+        self.cv3 = Conv(2 * c_, c2, 1)
+        self.m = nn.Sequential(*[Bottleneck1(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
+
+    def forward(self, x):
+        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
+
