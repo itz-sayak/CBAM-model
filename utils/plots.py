@@ -28,7 +28,7 @@ from utils.metrics import fitness
 RANK = int(os.getenv('RANK', -1))
 matplotlib.rc('font', **{'size': 11})
 matplotlib.use('Agg')  # for writing to files only
-
+FONT = "Arial.ttf"
 LOGGER = logging.getLogger(__name__)
 
 class Colors:
