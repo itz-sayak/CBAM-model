@@ -647,23 +647,79 @@ class C3extreme(nn.Module):
     def forward(self, x):
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
 
+class FPN(nn.Module):
+    def __init__(self, in_channels_list, out_channels):
+        super(FPN, self).__init__()
+        self.inner_blocks = nn.ModuleList()
+        self.layer_blocks = nn.ModuleList()
 
-class NeuroNest(nn.Module):
-    # Ghost Bottleneck with SE block
-    def __init__(self, c1, c2, k=3, s=1, r=16):  # ch_in, ch_out, kernel, stride, reduction ratio
-        super().__init__()
-        c_ = c2 // 2
-        self.conv = nn.Sequential(
-            GhostConv(c1, c_, 1, 1),  # pw
-            DWConv(c_, c_, k, s, act=False) if s == 2 else nn.Identity(),  # dw
-            GhostConv(c_, c2, 1, 1, act=False)  # pw-linear
-        )
-        self.se = SEBlock(c2, r)  # SE block
-        self.shortcut = nn.Sequential(
-            DWConv(c1, c1, k, s, act=False),
-            Conv(c1, c2, 1, 1, act=False)
-        ) if s == 2 else nn.Identity()
+        for in_channels in in_channels_list:
+            self.inner_blocks.append(nn.Conv2d(in_channels, out_channels, 1))
+            self.layer_blocks.append(nn.Conv2d(out_channels, out_channels, 3, padding=1))
 
     def forward(self, x):
-        return self.conv(x) + self.shortcut(x)
+        last_inner = self.inner_blocks[-1](x[-1])
+        results = [self.layer_blocks[-1](last_inner)]
 
+        for i in range(len(x) - 2, -1, -1):
+            inner_lateral = self.inner_blocks[i](x[i])
+            feat_shape = inner_lateral.shape[-2:]
+            inner_top_down = F.interpolate(last_inner, size=feat_shape, mode="nearest")
+            last_inner = inner_lateral + inner_top_down
+            results.insert(0, self.layer_blocks[i](last_inner))
+
+        return results
+
+class SEBottleneck(nn.Module):
+    def __init__(self, in_channels, out_channels, stride=1, reduction=16):
+        super(SEBottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.conv3 = nn.Conv2d(out_channels, out_channels * 4, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(out_channels * 4)
+        self.se = SEBlock(out_channels * 4, reduction)
+
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = nn.Sequential()
+        if stride != 1 or in_channels != out_channels * 4:
+            self.downsample = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels * 4, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(out_channels * 4),
+            )
+
+    def forward(self, x):
+        residual = self.downsample(x)
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+
+        out = self.conv3(out)
+        out = self.bn3(out)
+
+        out = self.se(out)
+        out += residual
+        out = self.relu(out)
+
+        return out
+
+
+class NeuroNest(nn.Module):
+    def __init__(self, in_channels, out_channels, num_blocks=1, stride=1):
+        super(C3, self).__init__()
+        self.downsample = nn.Conv2d(in_channels, out_channels, 1, stride=stride, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.blocks = nn.Sequential(*[SEBottleneck(out_channels, out_channels // 4) for _ in range(num_blocks)])
+
+    def forward(self, x):
+        x = self.downsample(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        return self.blocks(x)
