@@ -84,6 +84,19 @@ def check_font(font='Arial.ttf', size=10):
             print("Falling back to the default PIL font.")
             return ImageFont.load_default()
 '''
+def is_writeable(dir, test=False):
+    """Checks if a directory is writable, optionally testing by creating a temporary file if `test=True`."""
+    if not test:
+        return os.access(dir, os.W_OK)  # possible issues on Windows
+    file = Path(dir) / "tmp.txt"
+    try:
+        with open(file, "w"):  # open file with write permissions
+            pass
+        file.unlink()  # remove file
+        return True
+    except OSError:
+        return False
+
 
 def user_config_dir(dir="Ultralytics", env_var="YOLOV5_CONFIG_DIR"):
     """ Returns user configuration directory path, preferring environment variable `YOLOV5_CONFIG_DIR` if set, else OS-
