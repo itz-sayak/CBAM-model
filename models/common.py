@@ -614,39 +614,6 @@ class SEBlock(nn.Module):
         y = self.fc(y)
         return x * y
 
-class Bottleneck1(nn.Module):
-    # CSP Bottleneck with SE Block
-    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
-        super().__init__()
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, 1, 1)
-        self.cv2 = nn.Conv2d(c1, c_, 1, 1, bias=False)
-        self.cv3 = nn.Conv2d(c_, c_, 1, 1, bias=False)
-        self.cv4 = Conv(2 * c_, c2, 1, 1)
-        self.bn = nn.BatchNorm2d(2 * c_)  # applied to cat(cv2, cv3)
-        self.act = nn.LeakyReLU(0.1, inplace=True)
-        self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
-        self.se = SEBlock(c2)  # SE block for channel-wise attention
-
-    def forward(self, x):
-        y1 = self.cv3(self.m(self.cv1(x)))
-        y2 = self.cv2(x)
-        y = self.cv4(self.act(self.bn(torch.cat((y1, y2), dim=1))))
-        return self.se(y)  # Apply SE block
-
-class C3extreme(nn.Module):
-    # Enhanced CSP Bottleneck with 3 convolutions and SE block
-    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
-        super().__init__()
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, 1, 1)
-        self.cv2 = Conv(c1, c_, 1, 1)
-        self.cv3 = Conv(2 * c_, c2, 1)
-        self.m = nn.Sequential(*[Bottleneck1(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
-
-    def forward(self, x):
-        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
-
 class FPN(nn.Module):
     def __init__(self, in_channels_list, out_channels):
         super(FPN, self).__init__()
@@ -670,56 +637,36 @@ class FPN(nn.Module):
 
         return results
 
-class SEBottleneck(nn.Module):
-    def __init__(self, in_channels, out_channels, stride=1, reduction=16):
-        super(SEBottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_channels)
-        self.conv3 = nn.Conv2d(out_channels, out_channels * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(out_channels * 4)
-        self.se = SEBlock(out_channels * 4, reduction)
-
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = nn.Sequential()
-        if stride != 1 or in_channels != out_channels * 4:
-            self.downsample = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels * 4, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(out_channels * 4),
-            )
-
-    def forward(self, x):
-        residual = self.downsample(x)
-
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-
-        out = self.conv3(out)
-        out = self.bn3(out)
-
-        out = self.se(out)
-        out += residual
-        out = self.relu(out)
-
-        return out
-
-
-class NeuroNest(nn.Module):
-    def __init__(self, in_channels, out_channels, num_blocks=1, stride=1):
+class Bottleneck1(nn.Module):
+    # CSP Bottleneck with FPN Block
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
         super().__init__()
-        self.downsample = nn.Conv2d(in_channels, out_channels, 1, stride=stride, bias=False)
-        self.bn = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
-        self.blocks = nn.Sequential(*[SEBottleneck(out_channels, out_channels // 4) for _ in range(num_blocks)])
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1)
+        self.cv2 = nn.Conv2d(c1, c_, 1, 1, bias=False)
+        self.cv3 = nn.Conv2d(c_, c_, 1, 1, bias=False)
+        self.cv4 = Conv(2 * c_, c2, 1, 1)
+        self.bn = nn.BatchNorm2d(2 * c_)  # applied to cat(cv2, cv3)
+        self.act = nn.LeakyReLU(0.1, inplace=True)
+        self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
+        self.fpn = FPN([c2], c2)  # FPN block for multi-scale feature aggregation
 
     def forward(self, x):
-        x = self.downsample(x)
-        x = self.bn(x)
-        x = self.relu(x)
-        return self.blocks(x)
+        y1 = self.cv3(self.m(self.cv1(x)))
+        y2 = self.cv2(x)
+        y = self.cv4(self.act(self.bn(torch.cat((y1, y2), dim=1))))
+        return self.fpn([y])[0]  # Apply FPN block
+
+class C4(nn.Module):
+    # Enhanced CSP Bottleneck with 3 convolutions and FPN block
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1)
+        self.cv2 = Conv(c1, c_, 1, 1)
+        self.cv3 = Conv(2 * c_, c2, 1)
+        self.m = nn.Sequential(*[Bottleneck1(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
+
+    def forward(self, x):
+        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
+
