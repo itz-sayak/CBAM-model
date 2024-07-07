@@ -657,7 +657,7 @@ class Bottleneck1(nn.Module):
         y = self.cv4(self.act(self.bn(torch.cat((y1, y2), dim=1))))
         return self.fpn([y])[0]  # Apply FPN block
 
-class C4(nn.Module):
+class C5(nn.Module):
     # CSP Bottleneck with 6 convolutions
     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
         super().__init__()
